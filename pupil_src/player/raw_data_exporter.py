@@ -21,9 +21,12 @@ logger = logging.getLogger(__name__)
 import cPickle as pickle
 from exporter import export
 import exporter
+import pandas as pd
+from pandas import DataFrame
+import operator
+from file_methods import save_object,load_object
+from version_utils import VersionFormat, read_rec_version
 
-def get_auto_name():
-    return strftime("%Y_%m_%d", localtime())
 
 class Raw_Data_Exporter(Plugin):
     '''
@@ -36,10 +39,6 @@ class Raw_Data_Exporter(Plugin):
     def __init__(self,g_pool):
         super(Raw_Data_Exporter, self).__init__(g_pool)
         
-        self.default_path = os.path.expanduser('~/')
-        self.session_name = get_auto_name()
-        add_path=os.path.join(self.default_path,'Desktop','pupil','recordings',self.session_name)
-        self.source_dir = add_path
         
     def init_gui(self):
         self.menu = ui.Scrolling_Menu('Raw Data Exporter')
@@ -53,23 +52,13 @@ class Raw_Data_Exporter(Plugin):
         self.menu.append(ui.Info_Text('Select your export frame range using the trim marks in the seek bar. This will affect all exporting plugins.'))
         self.menu.append(ui.Text_Input('in_mark',getter=self.g_pool.trim_marks.get_string,setter=self.g_pool.trim_marks.set_string,label='frame range to export'))
         self.menu.append(ui.Info_Text("Press the export button or type 'e' to start the export."))
-        self.menu.append(ui.Info_Text("Please complete the full path to export markerfile."))
-        self.menu.append(ui.Text_Input('source_dir',self,setter=self.set_src_dir,label='Path'))
 
     def deinit_gui(self):
         if self.menu:
             self.g_pool.gui.remove(self.menu)
             self.menu = None
 
-    def set_src_dir(self,new_dir):
-        new_dir = new_dir
-        new_dir = os.path.expanduser(new_dir)
-        if os.path.isdir(new_dir):
-            self.source_dir = new_dir
-        else:
-            logger.warning('"%s" is not a directory'%new_dir)
-            return
-            
+
     def on_notify(self,notification):
         if notification['subject'] is "should_export":
             self.export_data(notification['range'],notification['export_dir'])
@@ -93,22 +82,23 @@ class Raw_Data_Exporter(Plugin):
                     data_3d = [None,]*21
                 row = data_2d + data_3d
                 csv_writer.writerow(row)
+                
+            with open(os.path.join(self.g_pool.rec_dir,'pupil_data'),'rb') as fh:
+                data=fh.read()
+            d=pickle.loads(data)
+            d1=d['notifications']
+
+            for m in d1:
+                ds=m['timestamp'],m['subject'],m['file']
+                csv_writer.writerow(ds)
+            csv_writer.sort(key=lambda q: q['timestamp'])
+            #df1=df2.to_csv(os.path.join(export_dir,'sorter.csv'),index=None)
             logger.info("Created 'pupil_positions.csv' file.")
-           
-        with open(os.path.join(export_dir,'marker.csv'),'wb') as markerfile:
-            #with open(os.path.join(exporter.export(rec_dir),'pupil_data'),'rb') as fh:
-            try:
-                with open(os.path.join(self.source_dir,'pupil_data'),'rb') as fh:
-                    data=fh.read()
-                d=pickle.loads(data)
-                d1=d['notifications']
-                writer=csv.writer(markerfile,delimiter=',')
-                writer.writerow(d1)
-                logger.info("Created 'marker.csv' file.")
-            except IOError:
-                logger.error("Did not complete the full path.")
-                return False
-             
+            #csv_writer.sort('timestamp')
+            
+
+        
+
         with open(os.path.join(export_dir,'gaze_postions.csv'),'wb') as csvfile:
             csv_writer = csv.writer(csvfile, delimiter=',')
             csv_writer.writerow(("timestamp",
